@@ -1,7 +1,7 @@
 {
   "baseUrl": "https://mood-cast-pro-a849adcb.base44.app",
-  "authHeaderName": "api_key",
+  "authHeaderName": "x-worker-token",
   "authHeaderPrefix": "",
-  "adminToken": "PUT-ADMIN-API-KEY-HERE",
+  "adminToken": "PUT-WORKER-TOKEN-HERE",
   "maxJobs": 3
 }
