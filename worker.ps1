@@ -17,11 +17,13 @@ function Log([string]$msg) {
   Add-Content -Path (Join-Path $Root 'worker.log') -Value $line
 }
 
-# ---- render contract (verified 2026-07-30; spec: locked settings) ----
-$W = 800; $H = 192; $DUR = 7
-function Get-Filter([string]$preset, [int]$fps) {
+# ---- render contract (re-verified 2026-07-30: live embed slot is
+# PublicWidget's aspect-video box = 16:9, NOT AdDisplay's 400x96 preview) ----
+$DUR = 7
+function Get-Filter([string]$preset, [int]$fps, [int]$w, [int]$h) {
   $frames = $DUR * $fps
-  $pre = "scale=4000:-2,crop=4000:960:(in_w-4000)/2:(in_h-960)/2"
+  # center-crop to 16:9 at high res, then zoompan renders at target size
+  $pre = "scale=4000:-2,crop=4000:2250:(in_w-4000)/2:(in_h-2250)/2"
   $zp = switch ($preset) {
     'zoom_in'   { "z='min(1+0.12*on/$frames,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'" }
     'zoom_out'  { "z='max(1.12-0.12*on/$frames,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'" }
@@ -29,7 +31,7 @@ function Get-Filter([string]$preset, [int]$fps) {
     'pan_right' { "z='1.12':x='(iw-iw/zoom)*on/$frames':y='ih/2-(ih/zoom/2)'" }
     default     { throw "Unknown preset $preset" }
   }
-  "$pre,zoompan=$zp`:d=$frames`:s=${W}x${H}`:fps=$fps"
+  "$pre,zoompan=$zp`:d=$frames`:s=${w}x${h}`:fps=$fps"
 }
 
 function Get-AnmfCount([string]$path) {
@@ -39,18 +41,25 @@ function Get-AnmfCount([string]$path) {
 }
 
 function Invoke-Render([string]$inPath, [string]$preset, [string]$outPath) {
-  $q = if ($preset -like 'pan*') { 60 } else { 65 }
-  & ffmpeg -y -v error -i $inPath -filter_complex (Get-Filter $preset 16) `
-    -c:v libwebp_anim -q:v $q -loop 0 -t $DUR $outPath
-  if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed (preset $preset)" }
-  if ((Get-Item $outPath).Length -gt 1500000) {
-    Log "  over 1.5MB at 16fps, falling back to 12fps"
-    & ffmpeg -y -v error -i $inPath -filter_complex (Get-Filter $preset 12) `
-      -c:v libwebp_anim -q:v 65 -loop 0 -t $DUR $outPath
-    if ($LASTEXITCODE -ne 0) { throw "ffmpeg 12fps fallback failed" }
+  # Adaptive ladder: 16:9 at 640x360 (1.6x of the 400x225 CSS slot) 16fps,
+  # stepping down fps/quality/size until under the 1.5MB embed budget.
+  # Ladder validated 2026-07-30 on a worst-case hard-upscaled portrait photo.
+  $qBase = if ($preset -like 'pan*') { 55 } else { 60 }
+  $ladder = @(
+    @{ w = 640; h = 360; fps = 16; q = $qBase },
+    @{ w = 640; h = 360; fps = 12; q = $qBase - 10 },
+    @{ w = 560; h = 315; fps = 12; q = $qBase - 10 }
+  )
+  $size = 0
+  foreach ($step in $ladder) {
+    & ffmpeg -y -v error -i $inPath -filter_complex (Get-Filter $preset $step.fps $step.w $step.h) `
+      -c:v libwebp_anim -q:v $step.q -loop 0 -t $DUR $outPath
+    if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed (preset $preset, $($step.w)x$($step.h)@$($step.fps))" }
+    $size = (Get-Item $outPath).Length
+    if ($size -le 1500000) { break }
+    Log "  $($step.w)x$($step.h)@$($step.fps)fps q$($step.q) = $size bytes, stepping down"
   }
-  $size = (Get-Item $outPath).Length
-  if ($size -gt 1500000) { throw "Output still exceeds 1.5MB ($size bytes)" }
+  if ($size -gt 1500000) { throw "Output still exceeds 1.5MB ($size bytes) after full ladder" }
   if ((Get-AnmfCount $outPath) -lt 2) { throw "Output is not animated (ANMF<2)" }
   $size
 }
