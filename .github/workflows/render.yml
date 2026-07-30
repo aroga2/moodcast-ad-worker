@@ -1,0 +1,32 @@
+name: render
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# Never run two workers at once — the claim endpoint assumes a single
+# sequential worker (no compare-and-swap on job status).
+concurrency:
+  group: render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure ffmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          fi
+          ffmpeg -version | head -1
+
+      - name: Render pending ad jobs
+        shell: pwsh
+        env:
+          WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+        run: ./worker.ps1

@@ -102,7 +102,22 @@ if ($TestRender) {
 }
 
 # ---- live mode ----
-$cfg = Get-Content (Join-Path $Root 'config.json') | ConvertFrom-Json
+# Config: config.json when present (local/VPS), else environment variables
+# (cloud runners like GitHub Actions, where WORKER_TOKEN is an Actions secret).
+$cfgPath = Join-Path $Root 'config.json'
+if (Test-Path $cfgPath) {
+  $cfg = Get-Content $cfgPath | ConvertFrom-Json
+} elseif ($env:WORKER_TOKEN) {
+  $cfg = [pscustomobject]@{
+    baseUrl          = if ($env:WORKER_BASE_URL) { $env:WORKER_BASE_URL } else { 'https://mood-cast-pro-a849adcb.base44.app' }
+    authHeaderName   = 'x-worker-token'
+    authHeaderPrefix = ''
+    adminToken       = $env:WORKER_TOKEN
+    maxJobs          = 3
+  }
+} else {
+  throw "No config.json found and WORKER_TOKEN env var not set"
+}
 $headers = @{ $cfg.authHeaderName = "$($cfg.authHeaderPrefix)$($cfg.adminToken)" }
 $api = "$($cfg.baseUrl)/api/functions"
 
