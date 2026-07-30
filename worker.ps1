@@ -42,13 +42,17 @@ function Get-AnmfCount([string]$path) {
 
 function Invoke-Render([string]$inPath, [string]$preset, [string]$outPath) {
   # Adaptive ladder: 16:9 at 640x360 (1.6x of the 400x225 CSS slot) 16fps,
-  # stepping down fps/quality/size until under the 1.5MB embed budget.
-  # Ladder validated 2026-07-30 on a worst-case hard-upscaled portrait photo.
+  # stepping down fps/quality/size until under the embed budget. Budget is
+  # 2.5MB (raised 2026-07-30: the 16:9 ad is the widget's hero visual —
+  # crushing quality below the floor steps sells nothing; most photos land
+  # far lighter via the earlier steps).
+  $BUDGET = 2500000
   $qBase = if ($preset -like 'pan*') { 55 } else { 60 }
   $ladder = @(
     @{ w = 640; h = 360; fps = 16; q = $qBase },
     @{ w = 640; h = 360; fps = 12; q = $qBase - 10 },
-    @{ w = 560; h = 315; fps = 12; q = $qBase - 10 }
+    @{ w = 560; h = 315; fps = 12; q = $qBase - 10 },
+    @{ w = 560; h = 315; fps = 12; q = $qBase - 20 }
   )
   $size = 0
   foreach ($step in $ladder) {
@@ -56,10 +60,10 @@ function Invoke-Render([string]$inPath, [string]$preset, [string]$outPath) {
       -c:v libwebp_anim -q:v $step.q -loop 0 -t $DUR $outPath
     if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed (preset $preset, $($step.w)x$($step.h)@$($step.fps))" }
     $size = (Get-Item $outPath).Length
-    if ($size -le 1500000) { break }
+    if ($size -le $BUDGET) { break }
     Log "  $($step.w)x$($step.h)@$($step.fps)fps q$($step.q) = $size bytes, stepping down"
   }
-  if ($size -gt 1500000) { throw "Output still exceeds 1.5MB ($size bytes) after full ladder" }
+  if ($size -gt $BUDGET) { throw "Output still exceeds $BUDGET bytes ($size bytes) after full ladder" }
   if ((Get-AnmfCount $outPath) -lt 2) { throw "Output is not animated (ANMF<2)" }
   $size
 }
