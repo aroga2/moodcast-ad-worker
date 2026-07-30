@@ -94,7 +94,7 @@ $headers = @{ $cfg.authHeaderName = "$($cfg.authHeaderPrefix)$($cfg.adminToken)"
 $api = "$($cfg.baseUrl)/api/functions"
 
 $resp = Invoke-RestMethod -Method Post -Uri "$api/adJobsClaim" -Headers $headers `
-  -ContentType 'application/json' -Body (@{ max_jobs = $cfg.maxJobs } | ConvertTo-Json)
+  -ContentType 'application/json' -Body (@{ max_jobs = $cfg.maxJobs } | ConvertTo-Json) -TimeoutSec 30
 if (-not $resp.jobs -or $resp.jobs.Count -eq 0) { Log "no pending jobs"; exit 0 }
 Log "claimed $($resp.jobs.Count) job(s)"
 
@@ -102,7 +102,7 @@ foreach ($job in $resp.jobs) {
   $id = $job.id
   try {
     $inPath = Join-Path $Work "$id-in"
-    Invoke-WebRequest -Uri $job.source_image_url -OutFile $inPath
+    Invoke-WebRequest -Uri $job.source_image_url -OutFile $inPath -TimeoutSec 60
     Assert-ValidInput $inPath
     $preset = Select-Preset $job.motion_preset $id
     $outPath = Join-Path $Work "$id.webp"
@@ -112,7 +112,7 @@ foreach ($job in $resp.jobs) {
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($outPath))
     $done = Invoke-RestMethod -Method Post -Uri "$api/adJobsComplete" -Headers $headers `
       -ContentType 'application/json' `
-      -Body (@{ job_id = $id; success = $true; webp_base64 = $b64 } | ConvertTo-Json)
+      -Body (@{ job_id = $id; success = $true; webp_base64 = $b64 } | ConvertTo-Json) -TimeoutSec 120
     Log "job $id done -> template $($done.template_id)"
     Remove-Item $inPath, $outPath -Force -ErrorAction SilentlyContinue
   }
@@ -122,7 +122,7 @@ foreach ($job in $resp.jobs) {
     try {
       Invoke-RestMethod -Method Post -Uri "$api/adJobsComplete" -Headers $headers `
         -ContentType 'application/json' `
-        -Body (@{ job_id = $id; success = $false; error = $msg } | ConvertTo-Json) | Out-Null
+        -Body (@{ job_id = $id; success = $false; error = $msg } | ConvertTo-Json) -TimeoutSec 120 | Out-Null
     } catch { Log "job ${id}: could not report failure: $($_.Exception.Message)" }
   }
 }
