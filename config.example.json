@@ -1,0 +1,7 @@
+{
+  "baseUrl": "https://app.moodcastpro.com",
+  "authHeaderName": "Authorization",
+  "authHeaderPrefix": "Bearer ",
+  "adminToken": "PUT-ADMIN-TOKEN-HERE",
+  "maxJobs": 3
+}
